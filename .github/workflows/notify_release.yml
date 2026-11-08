@@ -4,25 +4,20 @@ on:
   release:
     types: [published]
 
-concurrency:
-  group: fcm-release-notify
-  cancel-in-progress: true
-
 jobs:
   notify-users:
     name: Send FCM Push Notification
     runs-on: ubuntu-latest
 
     steps:
-      - name: Generate Access Token using Private Key
-        id: auth
+      - name: Send Notification
         shell: bash
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets['FIREBASE_SERVICE_ACCOUNT'] }}
         run: |
           python3 -m pip install --quiet google-auth requests
-          python3 - << 'EOF' > result.json
-          import json, os
+          python3 - << 'EOF'
+          import json, os, requests
           from google.oauth2 import service_account
           import google.auth.transport.requests
 
@@ -31,62 +26,28 @@ jobs:
               key_data,
               scopes=['https://www.googleapis.com/auth/firebase.messaging']
           )
-          request = google.auth.transport.requests.Request()
-          creds.refresh(request)
-          
-          out = {
-              "token": creds.token,
-              "project_id": key_data.get("project_id", "life-app-59")
-          }
-          print(json.dumps(out))
-          EOF
-          
-          TOKEN=$(python3 -c "import json; print(json.load(open('result.json'))['token'])")
-          PROJECT_ID=$(python3 -c "import json; print(json.load(open('result.json'))['project_id'])")
-          
-          echo "access_token=$TOKEN" >> $GITHUB_OUTPUT
-          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
+          creds.refresh(google.auth.transport.requests.Request())
 
-      - name: Prepare Notification Payload
-        shell: bash
-        run: |
-          TAG="${{ github.event.release.tag_name || 'تحديث جديد' }}"
-          cat << EOF > payload.json
-          {
-            "message": {
-              "topic": "app_updates",
-              "notification": {
-                "title": "تحديث جديد متوفر 🚀 (${TAG})",
-                "body": "تم إصدار نسخة جديدة من تطبيق Life، افتح التطبيق للتحميل والتثبيت."
-              },
-              "android": {
-                "priority": "high",
-                "notification": {
-                  "channel_id": "life_updates_channel",
-                  "click_action": "FLUTTER_NOTIFICATION_CLICK"
-                }
+          project_id = key_data.get("project_id", "life-app-59")
+          url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+          
+          payload = {
+              "message": {
+                  "topic": "app_updates",
+                  "notification": {
+                      "title": "تحديث جديد متوفر 🚀",
+                      "body": "يتوفر إصدار جديد من تطبيق Life، افتح التطبيق للتحديث."
+                  },
+                  "android": {
+                      "priority": "high",
+                      "notification": {
+                          "channel_id": "life_updates_channel"
+                      }
+                  }
               }
-            }
           }
+
+          r = requests.post(url, headers={"Authorization": f"Bearer {creds.token}"}, json=payload)
+          print(r.status_code, r.text)
+          r.raise_for_status()
           EOF
-
-      - name: Send FCM Notification via HTTP v1 API
-        shell: bash
-        run: |
-          PROJECT_ID="${{ steps.auth.outputs.project_id }}"
-          echo "Sending notification for project: $PROJECT_ID"
-          
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
-            -H "Authorization: Bearer ${{ steps.auth.outputs.access_token }}" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            -d @payload.json \
-            "https://fcm.googleapis.com/v1/projects/${PROJECT_ID}/messages:send")
-
-          echo "FCM Response: $RESPONSE"
-
-          if echo "$RESPONSE" | grep -q "HTTP_STATUS:200"; then
-            echo "✅ Notification sent successfully to topic 'app_updates'!"
-          else
-            echo "❌ Failed to send notification"
-            exit 1
-          fi
