@@ -4,6 +4,10 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: fcm-release-notify
+  cancel-in-progress: true
+
 jobs:
   notify-users:
     name: Send FCM Push Notification
@@ -54,11 +58,6 @@ jobs:
               "notification": {
                 "title": "تحديث جديد متوفر 🚀 (${TAG})",
                 "body": "تم إصدار نسخة جديدة من تطبيق Life، افتح التطبيق للتحميل والتثبيت."
-              },
-              "data": {
-                "type": "update",
-                "tag": "${TAG}",
-                "route": "update"
               },
               "android": {
                 "priority": "high",
