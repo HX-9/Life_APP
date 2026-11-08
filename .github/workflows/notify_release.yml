@@ -2,12 +2,7 @@ name: Notify App Release via Firebase
 
 on:
   release:
-    types: [published, created]
-  push:
-    tags:
-      - 'v*'
-      - 'V*'
-  workflow_dispatch:
+    types: [published]
 
 jobs:
   notify-users:
@@ -51,7 +46,7 @@ jobs:
       - name: Prepare Notification Payload
         shell: bash
         run: |
-          TAG="${{ github.event.release.tag_name || github.ref_name || 'تحديث جديد' }}"
+          TAG="${{ github.event.release.tag_name || 'تحديث جديد' }}"
           cat << EOF > payload.json
           {
             "message": {
