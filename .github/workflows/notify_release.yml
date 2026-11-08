@@ -3,6 +3,10 @@ name: Notify App Release via Firebase
 on:
   release:
     types: [published, created]
+  push:
+    tags:
+      - 'v*'
+      - 'V*'
   workflow_dispatch:
 
 jobs:
@@ -11,14 +15,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Generate Firebase Access Token
+      - name: Generate Access Token using Private Key
         id: auth
         shell: bash
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets['FIREBASE_SERVICE_ACCOUNT'] }}
         run: |
           python3 -m pip install --quiet google-auth requests
-          python3 - << 'EOF' > token.txt
+          python3 - << 'EOF' > result.json
           import json, os
           from google.oauth2 import service_account
           import google.auth.transport.requests
@@ -30,25 +34,35 @@ jobs:
           )
           request = google.auth.transport.requests.Request()
           creds.refresh(request)
-          print(creds.token)
+          
+          out = {
+              "token": creds.token,
+              "project_id": key_data.get("project_id", "life-app-59")
+          }
+          print(json.dumps(out))
           EOF
-          echo "access_token=$(cat token.txt)" >> $GITHUB_OUTPUT
-          echo "project_id=$(python3 -c "import json, os; print(json.loads(os.environ['SERVICE_ACCOUNT_JSON']).get('project_id', 'life-app-59'))")" >> $GITHUB_OUTPUT
+          
+          TOKEN=$(python3 -c "import json; print(json.load(open('result.json'))['token'])")
+          PROJECT_ID=$(python3 -c "import json; print(json.load(open('result.json'))['project_id'])")
+          
+          echo "access_token=$TOKEN" >> $GITHUB_OUTPUT
+          echo "project_id=$PROJECT_ID" >> $GITHUB_OUTPUT
 
       - name: Prepare Notification Payload
         shell: bash
         run: |
-          cat << 'EOF' > payload.json
+          TAG="${{ github.event.release.tag_name || github.ref_name || 'تحديث جديد' }}"
+          cat << EOF > payload.json
           {
             "message": {
               "topic": "app_updates",
               "notification": {
-                "title": "تحديث جديد متوفر 🚀 (${{ github.event.release.tag_name || 'تحديث جديد' }})",
+                "title": "تحديث جديد متوفر 🚀 (${TAG})",
                 "body": "تم إصدار نسخة جديدة من تطبيق Life، افتح التطبيق للتحميل والتثبيت."
               },
               "data": {
                 "type": "update",
-                "tag": "${{ github.event.release.tag_name || '' }}",
+                "tag": "${TAG}",
                 "route": "update"
               },
               "android": {
