@@ -2,7 +2,7 @@ name: Notify App Release via Firebase
 
 on:
   release:
-    types: [published]
+    types: [published, created]
   workflow_dispatch:
 
 jobs:
@@ -11,12 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Authenticate to Google / Firebase
+      - name: Generate Firebase Access Token
         id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets['FIREBASE_SERVICE_ACCOUNT'] }}
-          token_format: 'access_token'
+        shell: bash
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets['FIREBASE_SERVICE_ACCOUNT'] }}
+        run: |
+          python3 -m pip install --quiet google-auth requests
+          python3 - << 'EOF' > token.txt
+          import json, os
+          from google.oauth2 import service_account
+          import google.auth.transport.requests
+
+          key_data = json.loads(os.environ['SERVICE_ACCOUNT_JSON'])
+          creds = service_account.Credentials.from_service_account_info(
+              key_data,
+              scopes=['https://www.googleapis.com/auth/firebase.messaging']
+          )
+          request = google.auth.transport.requests.Request()
+          creds.refresh(request)
+          print(creds.token)
+          EOF
+          echo "access_token=$(cat token.txt)" >> $GITHUB_OUTPUT
+          echo "project_id=$(python3 -c "import json, os; print(json.loads(os.environ['SERVICE_ACCOUNT_JSON']).get('project_id', 'life-app-59'))")" >> $GITHUB_OUTPUT
 
       - name: Prepare Notification Payload
         shell: bash
@@ -49,10 +66,6 @@ jobs:
         shell: bash
         run: |
           PROJECT_ID="${{ steps.auth.outputs.project_id }}"
-          if [ -z "$PROJECT_ID" ]; then
-            PROJECT_ID="life-app-59"
-          fi
-
           echo "Sending notification for project: $PROJECT_ID"
           
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST \
